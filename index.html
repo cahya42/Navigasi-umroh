@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panduan Arah Umroh</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0; padding: 16px; background-color: #f4f6f8; color: #222; text-align: center;
+    }
+    .card {
+      background: white; border-radius: 14px; padding: 18px; margin-bottom: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    h2 { margin-top: 0; font-size: 1.25rem; color: #1e3a8a; }
+    button {
+      background-color: #0284c7; color: white; border: none; padding: 12px 20px;
+      border-radius: 8px; font-size: 1rem; font-weight: bold; cursor: pointer; width: 100%;
+      margin: 6px 0;
+    }
+    button.alt { background-color: #0f766e; }
+    button.map-btn { background-color: #ea580c; }
+    select {
+      width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc;
+      margin: 8px 0; font-size: 1rem;
+    }
+    .compass-container {
+      position: relative; width: 200px; height: 200px; margin: 16px auto;
+      border: 4px solid #cbd5e1; border-radius: 50%; display: flex;
+      align-items: center; justify-content: center; background: #fff;
+    }
+    .needle {
+      position: absolute; width: 8px; height: 160px;
+      background: linear-gradient(to bottom, #ef4444 50%, #64748b 50%);
+      transform-origin: center center; transform: rotate(0deg);
+      border-radius: 4px; transition: transform 0.2s ease-out;
+    }
+    .needle::before {
+      content: ''; position: absolute; top: -10px; left: -6px;
+      border-left: 10px solid transparent; border-right: 10px solid transparent;
+      border-bottom: 12px solid #ef4444;
+    }
+    .stat { font-size: 1.1rem; font-weight: bold; margin: 8px 0; }
+    .note { font-size: 0.82rem; color: #64748b; margin-top: 4px; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>📍 Target Lokasi</h2>
+    <select id="targetSelect" onchange="updateTarget()">
+      <option value="hotel">🏨 Hotel Saya (Tersimpan)</option>
+      <optgroup label="Masjidil Haram (Makkah)">
+        <option value="21.4205,39.8262">Pintu 1 (King Abdulaziz Gate)</option>
+        <option value="21.4233,39.8256">Pintu 79 (King Fahd Gate)</option>
+        <option value="21.4227,39.8285">Pintu Marwah</option>
+      </optgroup>
+      <optgroup label="Masjid Nabawi (Madinah)">
+        <option value="24.4672,39.6111">Pintu 1 (Bab As-Salam)</option>
+        <option value="24.4705,39.6105">Pintu 21 (Pelataran Utara/Wanita)</option>
+        <option value="24.4695,39.6133">Pintu Baqi'</option>
+      </optgroup>
+    </select>
+
+    <button onclick="saveCurrentLocation()">💾 Simpan Posisi Saat Ini Jadi Hotel</button>
+    <div id="hotelStatus" class="note">Belum ada lokasi hotel tersimpan.</div>
+  </div>
+
+  <div class="card">
+    <h2>🧭 Kompas Penunjuk Arah</h2>
+    <div class="compass-container">
+      <div id="needle" class="needle"></div>
+    </div>
+    <div id="distInfo" class="stat">Jarak: -- meter</div>
+    <div id="bearingInfo" class="note">Arahkan panah merah lurus ke depan HP</div>
+    <button class="map-btn" onclick="openGoogleMaps()">Buka Navigasi Google Maps</button>
+  </div>
+
+  <script>
+    let savedHotel = JSON.parse(localStorage.getItem('saved_hotel') || 'null');
+    let currentLat = null, currentLng = null;
+    let targetLat = null, targetLng = null;
+    let deviceHeading = 0;
+
+    function init() {
+      if (savedHotel) {
+        document.getElementById('hotelStatus').innerText = 
+          `Hotel tersimpan: (${savedHotel.lat.toFixed(5)}, ${savedHotel.lng.toFixed(5)})`;
+      }
+      updateTarget();
+      startTracking();
+      setupOrientation();
+    }
+
+    function saveCurrentLocation() {
+      if (!currentLat || !currentLng) {
+        alert("Menunggu sinyal GPS...");
+        return;
+      }
+      savedHotel = { lat: currentLat, lng: currentLng };
+      localStorage.setItem('saved_hotel', JSON.stringify(savedHotel));
+      document.getElementById('hotelStatus').innerText = 
+        `Hotel tersimpan: (${savedHotel.lat.toFixed(5)}, ${savedHotel.lng.toFixed(5)})`;
+      alert("Lokasi hotel berhasil disimpan!");
+      updateTarget();
+    }
+
+    function updateTarget() {
+      const val = document.getElementById('targetSelect').value;
+      if (val === 'hotel') {
+        if (savedHotel) {
+          targetLat = savedHotel.lat;
+          targetLng = savedHotel.lng;
+        } else {
+          targetLat = null; targetLng = null;
+        }
+      } else {
+        const parts = val.split(',');
+        targetLat = parseFloat(parts[0]);
+        targetLng = parseFloat(parts[1]);
+      }
+      calculateNavigation();
+    }
+
+    function startTracking() {
+      if ('geolocation' in navigator) {
+        navigator.geolocation.watchPosition(
+          pos => {
+            currentLat = pos.coords.latitude;
+            currentLng = pos.coords.longitude;
+            calculateNavigation();
+          },
+          err => console.error(err),
+          { enableHighAccuracy: true, maximumAge: 1000 }
+        );
+      }
+    }
+
+    function setupOrientation() {
+      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+
+    function handleOrientation(e) {
+      if (e.webkitCompassHeading) {
+        deviceHeading = e.webkitCompassHeading;
+      } else if (e.alpha !== null) {
+        deviceHeading = 360 - e.alpha;
+      }
+      calculateNavigation();
+    }
+
+    function calculateNavigation() {
+      if (!currentLat || !currentLng || !targetLat || !targetLng) return;
+
+      // Hitung Jarak (Haversine Formula)
+      const R = 6371e3; // meter
+      const φ1 = currentLat * Math.PI / 180;
+      const φ2 = targetLat * Math.PI / 180;
+      const Δφ = (targetLat - currentLat) * Math.PI / 180;
+      const Δλ = (targetLng - currentLng) * Math.PI / 180;
+
+      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ/2) * Math.sin(Δλ/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const distance = Math.round(R * c);
+
+      document.getElementById('distInfo').innerText = `Jarak: ${distance} meter`;
+
+      // Hitung Bearing
+      const y = Math.sin(Δλ) * Math.cos(φ2);
+      const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+      const bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+
+      // Putar jarum kompas relatif terhadap hadap ponsel
+      const needleAngle = (bearing - deviceHeading + 360) % 360;
+      document.getElementById('needle').style.transform = `rotate(${needleAngle}deg)`;
+    }
+
+    function openGoogleMaps() {
+      if (targetLat && targetLng) {
+        window.open(`https://www.google.com/maps/dir/?api=1&destination=${targetLat},${targetLng}&travelmode=walking`);
+      } else {
+        alert("Pilih atau simpan target lokasi terlebih dahulu.");
+      }
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
